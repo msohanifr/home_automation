@@ -102,9 +102,21 @@ const RoomPage = () => {
     [numericRoomId, navigate, syncRoomForm]
   );
 
+  // ⬇️ UPDATED: initial load + polling every 5s
   useEffect(() => {
     if (!roomId) return;
+
+    // initial load
     load();
+
+    // poll for updates (MQTT worker → DB → API)
+    const intervalId = setInterval(() => {
+      load({ isRefresh: true });
+    }, 5000); // 5s, same as mqtt-sim
+
+    return () => {
+      clearInterval(intervalId);
+    };
   }, [roomId, load]);
 
   const handleRefreshClick = () => {

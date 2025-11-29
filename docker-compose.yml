@@ -1,10 +1,16 @@
 version: "3.9"
 
 services:
+  # -----------------------------
+  # Django backend (ASGI + Channels)
+  # -----------------------------
   backend:
     build: ./backend
     container_name: home_automation_backend
-    command: python manage.py runserver 0.0.0.0:8002
+    # IMPORTANT: use ASGI server (daphne) instead of runserver
+    command: daphne -b 0.0.0.0 -p 8002 backend.asgi:application
+    # ^ replace "backend.asgi:application" with your actual ASGI module
+    #   e.g. "config.asgi:application" if your project is named "config"
     ports:
       - "8002:8002"
     volumes:
@@ -18,17 +24,24 @@ services:
       - MQTT_BROKER_HOST=mqtt
       - MQTT_BROKER_PORT=1883
       - OPCUA_ENDPOINT=opc.tcp://opcua-sim:4840/freeopcua/server/
+      # Channels / Redis
+      - CHANNEL_REDIS_HOST=redis
+    depends_on:
+      - redis
 
+  # -----------------------------
+  # React frontend
+  # -----------------------------
   frontend:
     build: ./frontend
     container_name: home_automation_frontend
     command: ["npm", "start"]          # run webpack dev server
-    working_dir: /app                  # match what logs showed (/app/public)
+    working_dir: /app
     ports:
-      - "3003:3003"                    # inside & outside both 3003
+      - "3003:3003"
     volumes:
-      - ./frontend:/app                # mount your local code
-      - /app/node_modules              # keep node_modules in container
+      - ./frontend:/app
+      - /app/node_modules
     environment:
       - PORT=3003
       - REACT_APP_API_BASE_URL=http://localhost:8002/api
@@ -75,3 +88,35 @@ services:
       - ./infra/opcua_sim.py:/app/opcua_sim.py:ro
     command: >
       bash -c "pip install --no-cache-dir asyncua && python opcua_sim.py"
+
+  # -----------------------------
+  # MQTT worker (Django mgmt cmd consuming MQTT)
+  # -----------------------------
+  mqtt_worker:
+    build: ./backend
+    container_name: home_automation_mqtt_worker
+    command: python manage.py run_mqtt_worker
+    environment:
+      - DJANGO_DEBUG=1
+      - DJANGO_SECRET_KEY=changeme
+      - DJANGO_ALLOWED_HOSTS=*
+      - DJANGO_CORS_ORIGINS=http://localhost:3003
+      - MQTT_HOST=mqtt
+      - MQTT_PORT=1883
+      # Same Redis host as backend so group_send reaches websockets
+      - CHANNEL_REDIS_HOST=redis
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - backend
+      - mqtt
+      - redis
+
+  # -----------------------------
+  # Redis for Channels (shared channel layer)
+  # -----------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: home_automation_redis
+    ports:
+      - "6379:6379"
