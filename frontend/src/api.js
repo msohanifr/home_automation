@@ -164,5 +164,7 @@ export const updateEndpoint = (id, payload) =>
   api.patch(`/endpoints/${id}/`, payload);
 export const deleteEndpoint = (id) => api.delete(`/endpoints/${id}/`);
 
+export const sendDeviceCommand = (id, payload) =>
+  api.post(`/devices/${id}/command/`, payload);
 
 export default api;

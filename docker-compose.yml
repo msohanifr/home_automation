@@ -14,6 +14,10 @@ services:
       - DJANGO_SECRET_KEY=changeme
       - DJANGO_ALLOWED_HOSTS=*
       - DJANGO_CORS_ORIGINS=http://localhost:3003
+      # Pointers to test infra
+      - MQTT_BROKER_HOST=mqtt
+      - MQTT_BROKER_PORT=1883
+      - OPCUA_ENDPOINT=opc.tcp://opcua-sim:4840/freeopcua/server/
 
   frontend:
     build: ./frontend
@@ -30,3 +34,44 @@ services:
       - REACT_APP_API_BASE_URL=http://localhost:8002/api
     depends_on:
       - backend
+
+  # -----------------------------
+  # MQTT broker (Eclipse Mosquitto)
+  # -----------------------------
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: home_automation_mqtt
+    ports:
+      - "1883:1883"   # MQTT
+      - "9001:9001"   # Websockets (if enabled in config)
+    volumes:
+      - ./infra/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  # Simple MQTT simulator publishing random sensor values
+  mqtt-sim:
+    image: python:3.12-slim
+    container_name: home_automation_mqtt_sim
+    working_dir: /app
+    depends_on:
+      - mqtt
+    environment:
+      - MQTT_HOST=mqtt
+      - MQTT_PORT=1883
+    volumes:
+      - ./infra/mqtt_sim.py:/app/mqtt_sim.py:ro
+    command: >
+      bash -c "pip install --no-cache-dir paho-mqtt && python mqtt_sim.py"
+
+  # -----------------------------
+  # OPC UA simulation server
+  # -----------------------------
+  opcua-sim:
+    image: python:3.12-slim
+    container_name: home_automation_opcua
+    working_dir: /app
+    ports:
+      - "4840:4840"   # OPC UA endpoint
+    volumes:
+      - ./infra/opcua_sim.py:/app/opcua_sim.py:ro
+    command: >
+      bash -c "pip install --no-cache-dir asyncua && python opcua_sim.py"

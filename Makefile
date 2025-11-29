@@ -1,4 +1,5 @@
-.PHONY: help build up down restart logs backend-shell backend-migrate backend-superuser backend-test frontend-install frontend-build clean
+.PHONY: help build up down restart logs backend-shell backend-migrate backend-superuser backend-test \
+        frontend-install frontend-build clean mqtt-config
 
 help:
 	@echo "Home Automation Hub - Make targets"
@@ -14,6 +15,7 @@ help:
 	@echo "  backend-test      Run Django tests"
 	@echo "  frontend-install  Install JS dependencies for the frontend (npm install)"
 	@echo "  frontend-build    Build the frontend bundle"
+	@echo "  mqtt-config       Create Mosquitto MQTT config file"
 	@echo "  clean             Remove Python cache and build artifacts"
 	@echo ""
 
@@ -48,6 +50,20 @@ frontend-install:
 
 frontend-build:
 	cd frontend && npm run build
+
+# ----------------------------------------------------
+# NEW: Write MQTT broker config to infra/mosquitto.conf
+# ----------------------------------------------------
+mqtt-config:
+	@mkdir -p infra
+	@echo "listener 1883 0.0.0.0" > infra/mosquitto.conf
+	@echo "allow_anonymous true" >> infra/mosquitto.conf
+	@echo "persistence false" >> infra/mosquitto.conf
+	@echo "" >> infra/mosquitto.conf
+	@echo "# Optional WebSocket listener for UI/debug tools" >> infra/mosquitto.conf
+	@echo "listener 9001 0.0.0.0" >> infra/mosquitto.conf
+	@echo "protocol websockets" >> infra/mosquitto.conf
+	@echo "✔ MQTT config written to infra/mosquitto.conf"
 
 clean:
 	find . -name '__pycache__' -type d -exec rm -rf {} + || true

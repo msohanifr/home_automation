@@ -1,12 +1,17 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   getRooms,
   getRoomDevices,
   createDevice,
-  updateDevice,
-  // ⬇️ you'll add this in api.js
   updateRoom,
+  sendDeviceCommand,
+  updateDevice,
 } from "../api";
 
 const RoomPage = () => {
@@ -40,6 +45,7 @@ const RoomPage = () => {
     if (!roomData) return;
     setRoomName(roomData.name || "");
     setRoomSlug(roomData.slug || "");
+    // serializer exposes background_image_url (effective URL)
     setRoomBackgroundUrl(roomData.background_image_url || "");
     setBackgroundFile(null);
     setBackgroundPreview(roomData.background_image_url || "");
@@ -109,6 +115,10 @@ const RoomPage = () => {
     navigate("/");
   };
 
+  const handleOpenDeviceSettings = (deviceId) => {
+    navigate(`/devices/${deviceId}/settings`);
+  };
+
   /* -------------------------------
    * Devices logic
    * ----------------------------- */
@@ -116,16 +126,34 @@ const RoomPage = () => {
   const handleToggleDevice = async (device) => {
     try {
       setError("");
-      const isOn = device.is_on ?? device.on ?? false;
+
+      // Only treat digital-like devices as toggles
+      const isDigital =
+        device.signal_type === "digital" ||
+        device.device_type === "switch" ||
+        device.device_type === "light";
+
+      if (!isDigital) {
+        // later: open a modal for analog setpoints etc.
+        return;
+      }
+
+      const isOn = Boolean(device.is_on);
       const nextState = !isOn;
 
-      await updateDevice(device.id, { is_on: nextState });
-
+      // Optimistic UI update
       setDevices((prev) =>
         prev.map((d) =>
           d.id === device.id ? { ...d, is_on: nextState } : d
         )
       );
+
+      await sendDeviceCommand(device.id, {
+        state: nextState ? "on" : "off",
+      });
+
+      // reload to get last_value / timestamps
+      await load({ isRefresh: true });
     } catch (err) {
       console.error("Toggle device error:", err);
       const detail =
@@ -133,6 +161,13 @@ const RoomPage = () => {
         err?.response?.data?.detail ||
         "Could not toggle device.";
       setError(detail);
+
+      // revert optimistic state
+      setDevices((prev) =>
+        prev.map((d) =>
+          d.id === device.id ? { ...d, is_on: !d.is_on } : d
+        )
+      );
     }
   };
 
@@ -142,10 +177,19 @@ const RoomPage = () => {
 
     try {
       setError("");
+
+      // Map simple type selection to more detailed fields
+      const deviceType = newDeviceType; // "light" | "switch" | "sensor" | ...
+      const isSensor = deviceType === "sensor";
+      const deviceKind = isSensor ? "sensor" : "actuator";
+      const signalType = isSensor ? "analog" : "digital";
+
       await createDevice({
-        name: newDeviceName,
-        type: newDeviceType,
         room: numericRoomId,
+        name: newDeviceName,
+        device_type: deviceType,
+        device_kind: deviceKind,
+        signal_type: signalType,
         location: newDeviceLocation || "",
         is_on: false,
       });
@@ -161,6 +205,31 @@ const RoomPage = () => {
         err?.response?.data?.detail ||
         "Could not create device.";
       setError(detail);
+    }
+  };
+
+  // Live preview of position while dragging
+  const handleDevicePositionPreview = (deviceId, xPercent, yPercent) => {
+    setDevices((prev) =>
+      prev.map((d) =>
+        d.id === deviceId
+          ? { ...d, position_x: xPercent, position_y: yPercent }
+          : d
+      )
+    );
+  };
+
+  // Commit position to backend when drop finishes
+  const handleDevicePositionCommit = async (deviceId, xPercent, yPercent) => {
+    try {
+      await updateDevice(deviceId, {
+        position_x: xPercent,
+        position_y: yPercent,
+      });
+    } catch (err) {
+      console.error("Update device position error:", err);
+      // Optional: reload if you want to be strict
+      // await load({ isRefresh: true });
     }
   };
 
@@ -199,7 +268,7 @@ const RoomPage = () => {
         payload = new FormData();
         payload.append("name", roomName);
         payload.append("slug", roomSlug);
-        // Backend should expose an ImageField, e.g. `background_image`
+        // ImageField on backend: background_image
         payload.append("background_image", backgroundFile);
       } else {
         // Simple JSON PATCH if no new file uploaded
@@ -210,7 +279,7 @@ const RoomPage = () => {
       }
 
       const res = await updateRoom(room.id, payload);
-      const updatedRoom = res.data || res; // depending on backend
+      const updatedRoom = res.data || res;
       setRoom(updatedRoom);
       syncRoomForm(updatedRoom);
     } catch (err) {
@@ -227,6 +296,8 @@ const RoomPage = () => {
   const subtitle =
     room?.slug ||
     "Control devices in this room. Toggle lights, switches and more.";
+
+  const effectiveBackgroundUrl = room?.background_image_url || "";
 
   return (
     <div className="room-page">
@@ -314,6 +385,10 @@ const RoomPage = () => {
           setNewDeviceLocation={setNewDeviceLocation}
           onToggleDevice={handleToggleDevice}
           onCreateDevice={handleCreateDevice}
+          backgroundUrl={effectiveBackgroundUrl}
+          onDevicePositionPreview={handleDevicePositionPreview}
+          onDevicePositionCommit={handleDevicePositionCommit}
+          onOpenDeviceSettings={handleOpenDeviceSettings}
         />
       ) : (
         <RoomSettingsView
@@ -346,6 +421,10 @@ const RoomDevicesView = ({
   setNewDeviceLocation,
   onToggleDevice,
   onCreateDevice,
+  backgroundUrl,
+  onDevicePositionPreview,
+  onDevicePositionCommit,
+  onOpenDeviceSettings,
 }) => {
   return (
     <section className="rooms-section">
@@ -357,7 +436,9 @@ const RoomDevicesView = ({
 
         <div className="rooms-list-items">
           {devices.map((device) => {
-            const isOn = device.is_on ?? device.on ?? false;
+            const isOn = Boolean(device.is_on);
+            const labelType = device.device_type || "device";
+
             return (
               <div key={device.id} className="room-pill">
                 <div style={{ flex: 1 }}>
@@ -368,25 +449,46 @@ const RoomDevicesView = ({
                       color: "#6b7280",
                       display: "flex",
                       gap: 8,
+                      flexWrap: "wrap",
                     }}
                   >
-                    <span>{device.type || "device"}</span>
-                    {device.location && (
-                      <span>• {device.location}</span>
+                    <span>{labelType}</span>
+                    {device.location && <span>• {device.location}</span>}
+                    {device.unit && <span>• unit: {device.unit}</span>}
+                    {typeof device.last_value === "number" && (
+                      <span>
+                        • last: {device.last_value}
+                        {device.unit ? ` ${device.unit}` : ""}
+                      </span>
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className={
-                    isOn
-                      ? "device-toggle device-toggle-on"
-                      : "device-toggle"
-                  }
-                  onClick={() => onToggleDevice(device)}
-                >
-                  {isOn ? "On" : "Off"}
-                </button>
+
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    className={
+                      isOn
+                        ? "device-toggle device-toggle-on"
+                        : "device-toggle"
+                    }
+                    onClick={() => onToggleDevice(device)}
+                  >
+                    {isOn ? "On" : "Off"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-outline"
+                    style={{
+                      fontSize: 11,
+                      padding: "4px 8px",
+                      marginLeft: 8,
+                    }}
+                    onClick={() => onOpenDeviceSettings(device.id)}
+                  >
+                    Settings
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -400,15 +502,38 @@ const RoomDevicesView = ({
         </div>
       </div>
 
-      {/* Right: new device form */}
+      {/* Right: canvas + new device form */}
       <div className="room-canvas-wrapper">
         <div className="room-canvas-header">
+          <h2 className="room-canvas-title">Room layout</h2>
+        </div>
+
+        <RoomCanvas
+          devices={devices}
+          backgroundUrl={backgroundUrl}
+          onPositionPreview={onDevicePositionPreview}
+          onPositionCommit={onDevicePositionCommit}
+          onOpenDeviceSettings={onOpenDeviceSettings}
+        />
+
+        <div
+          style={{
+            margin: "12px 0 8px",
+            fontSize: 13,
+            color: "#6b7280",
+          }}
+        >
+          Drag devices around to place them on the background. Positions
+          are saved when you release the dot. Click a dot to open its
+          settings.
+        </div>
+
+        <div className="room-canvas-header" style={{ marginTop: 16 }}>
           <h2 className="room-canvas-title">Add device</h2>
         </div>
         <div style={{ marginBottom: 8, fontSize: 13, color: "#6b7280" }}>
-          Create devices linked to this room. In a real setup, you would attach
-          vendor IDs (Google Home, Nest, Ring) and control state via backend
-          integrations.
+          Create devices linked to this room. You can later wire them to
+          connectors and endpoints from the Device Settings page.
         </div>
 
         <form onSubmit={onCreateDevice}>
@@ -457,6 +582,224 @@ const RoomDevicesView = ({
         </form>
       </div>
     </section>
+  );
+};
+
+/* -----------------------------------
+ * Room canvas (draggable devices + click → settings)
+ * --------------------------------- */
+
+const RoomCanvas = ({
+  devices,
+  backgroundUrl,
+  onPositionPreview,
+  onPositionCommit,
+  onOpenDeviceSettings,
+}) => {
+  const containerRef = useRef(null);
+  const [draggingId, setDraggingId] = useState(null);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const didMoveRef = useRef(false);
+
+  const getPercentFromPointer = (event) => {
+    if (!containerRef.current) return { x: 0, y: 0 };
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    return {
+      x: Math.min(100, Math.max(0, x)),
+      y: Math.min(100, Math.max(0, y)),
+    };
+  };
+
+  const handlePointerDown = (e, deviceId) => {
+    e.preventDefault();
+    setDraggingId(deviceId);
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    didMoveRef.current = false;
+
+    const { x, y } = getPercentFromPointer(e);
+    onPositionPreview(deviceId, x, y);
+  };
+
+  const handlePointerMove = (e) => {
+    if (!draggingId) return;
+
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    const distanceSq = dx * dx + dy * dy;
+
+    // treat anything over ~3px as "moved"
+    if (distanceSq > 9) {
+      didMoveRef.current = true;
+    }
+
+    const { x, y } = getPercentFromPointer(e);
+    onPositionPreview(draggingId, x, y);
+  };
+
+  const finishDrag = (e) => {
+    if (!draggingId) return;
+    const finalId = draggingId;
+    setDraggingId(null);
+
+    const { x, y } = getPercentFromPointer(e);
+    onPositionPreview(finalId, x, y);
+    onPositionCommit(finalId, x, y);
+
+    // If user didn't really move the pointer → treat it as a click
+    if (!didMoveRef.current && onOpenDeviceSettings) {
+      onOpenDeviceSettings(finalId);
+    }
+  };
+
+  // Map device type → color
+  const getTypeColor = (deviceType) => {
+    switch (deviceType) {
+      case "light":
+        return "#facc15"; // warm yellow
+      case "switch":
+        return "#38bdf8"; // sky
+      case "sensor":
+        return "#22c55e"; // green
+      case "thermostat":
+        return "#f97316"; // orange
+      case "camera":
+        return "#a855f7"; // purple
+      default:
+        return "#6b7280"; // gray
+    }
+  };
+
+  // Optional: short tag text for type
+  const getTypeTag = (deviceType) => {
+    switch (deviceType) {
+      case "light":
+        return "LGT";
+      case "switch":
+        return "SW";
+      case "sensor":
+        return "SNS";
+      case "thermostat":
+        return "TH";
+      case "camera":
+        return "CAM";
+      default:
+        return "";
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className="room-canvas"
+      style={{
+        backgroundImage: backgroundUrl
+          ? `url(${backgroundUrl})`
+          : "radial-gradient(circle at top, #e5e7eb 0, #f9fafb 55%)",
+        backgroundSize: backgroundUrl ? "cover" : "auto",
+        backgroundPosition: "center",
+        position: "relative",
+        minHeight: 260,
+        borderRadius: 12,
+        border: "1px solid #e5e7eb",
+        overflow: "hidden",
+        touchAction: "none",
+      }}
+      onPointerMove={handlePointerMove}
+      onPointerUp={finishDrag}
+      onPointerLeave={finishDrag}
+    >
+      {devices.map((device) => {
+        const left = device.position_x ?? 10;
+        const top = device.position_y ?? 10;
+        const isOn = Boolean(device.is_on);
+        const typeColor = getTypeColor(device.device_type);
+        const typeTag = getTypeTag(device.device_type);
+
+        return (
+          <div
+            key={device.id}
+            className="room-device-dot"
+            style={{
+              position: "absolute",
+              left: `${left}%`,
+              top: `${top}%`,
+              transform: "translate(-50%, -50%)",
+              cursor: "grab",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+            onPointerDown={(e) => handlePointerDown(e, device.id)}
+          >
+            {/* Dot */}
+            <div
+              className="room-device-dot-inner"
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: "999px",
+                border: `2px solid ${typeColor}`,
+                backgroundColor: isOn ? typeColor : "#f9fafb",
+                boxShadow:
+                  draggingId === device.id
+                    ? "0 0 0 3px rgba(59,130,246,0.4)"
+                    : "0 1px 2px rgba(15,23,42,0.18)",
+              }}
+              title={device.name}
+            />
+
+            {/* Label pill */}
+            <div
+              style={{
+                padding: "2px 8px",
+                borderRadius: 999,
+                fontSize: 11,
+                background: "rgba(15,23,42,0.80)",
+                color: "#f9fafb",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                maxWidth: 140,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {typeTag && (
+                <span
+                  style={{
+                    fontWeight: 600,
+                    fontSize: 10,
+                    padding: "1px 5px",
+                    borderRadius: 999,
+                    background: "rgba(15,23,42,0.95)",
+                    border: `1px solid ${typeColor}`,
+                  }}
+                >
+                  {typeTag}
+                </span>
+              )}
+              <span>{device.name}</span>
+            </div>
+          </div>
+        );
+      })}
+
+      {!devices.length && (
+        <p
+          style={{
+            fontSize: 12,
+            color: "#6b7280",
+            padding: 12,
+          }}
+        >
+          Devices will appear here once added. Drag dots to reposition them on
+          the room background, or click a dot to open its settings.
+        </p>
+      )}
+    </div>
   );
 };
 
@@ -513,8 +856,8 @@ const RoomSettingsView = ({
           <h2 className="room-canvas-title">Background</h2>
         </div>
         <div style={{ marginBottom: 8, fontSize: 13, color: "#6b7280" }}>
-          Upload a background image for this room. The image can be used in
-          your UI to render a hero or thumbnail for the room.
+          Upload a background image for this room. The image is also used in the
+          layout canvas on the Devices tab.
         </div>
 
         {backgroundPreview && (
@@ -529,7 +872,12 @@ const RoomSettingsView = ({
             <img
               src={backgroundPreview}
               alt="Room background preview"
-              style={{ width: "100%", display: "block", maxHeight: 220, objectFit: "cover" }}
+              style={{
+                width: "100%",
+                display: "block",
+                maxHeight: 220,
+                objectFit: "cover",
+              }}
             />
           </div>
         )}

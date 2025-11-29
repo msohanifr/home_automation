@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Room, Device, Integration
+from .models import Connector, DeviceEndpoint, Room, Device, Integration
 
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):
@@ -17,3 +17,34 @@ class DeviceAdmin(admin.ModelAdmin):
 class IntegrationAdmin(admin.ModelAdmin):
     list_display = ('id', 'display_name', 'provider', 'owner', 'created_at')
     list_filter = ('provider',)
+
+
+
+@admin.register(Connector)
+class ConnectorAdmin(admin.ModelAdmin):
+    """
+    Admin for protocol-level connectors (MQTT / OPC UA / PLC / HTTP, etc.).
+    NOTE: we do NOT refer to 'status' or 'last_synced' here, because those
+    fields do not exist on the Connector model.
+    """
+
+    list_display = (
+        "id",
+        "name",
+        "connector_type",
+        "owner",
+        "is_active",
+        "created_at",
+    )
+    list_filter = ("connector_type", "is_active")
+    search_fields = ("name", "owner__username")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(DeviceEndpoint)
+class DeviceEndpointAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "device",
+        "connector",
+    )
