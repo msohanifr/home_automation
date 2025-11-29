@@ -33,13 +33,16 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ASGI_APPLICATION = "backend.asgi.application"  # adjust module name
+ASGI_APPLICATION = "home_automation_backend.asgi.application"  # adjust module name
 
-# For local dev, in-memory layer is fine
+# settings.py
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
-    }
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("redis", 6379)],  # service name from docker-compose
+        },
+    },
 }
 
 ROOT_URLCONF = 'home_automation_backend.urls'

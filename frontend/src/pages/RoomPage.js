@@ -14,6 +14,20 @@ import {
   updateDevice,
 } from "../api";
 
+/**
+ * Merge a single updated device into the existing devices array.
+ */
+const applyDeviceUpdate = (devices, updatedDevice) => {
+  const exists = devices.some((d) => d.id === updatedDevice.id);
+  if (!exists) {
+    // if for some reason it's new, append it
+    return [...devices, updatedDevice];
+  }
+  return devices.map((d) =>
+    d.id === updatedDevice.id ? { ...d, ...updatedDevice } : d
+  );
+};
+
 const RoomPage = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
@@ -28,6 +42,10 @@ const RoomPage = () => {
 
   // Tabs: "devices" | "settings"
   const [activeTab, setActiveTab] = useState("devices");
+
+  // WebSocket connection status: "idle" | "connecting" | "online" | "offline"
+  const [wsStatus, setWsStatus] = useState("idle");
+  const socketRef = useRef(null);
 
   // New device form
   const [newDeviceName, setNewDeviceName] = useState("");
@@ -51,6 +69,9 @@ const RoomPage = () => {
     setBackgroundPreview(roomData.background_image_url || "");
   }, []);
 
+  /**
+   * REST loader – initial snapshot and manual refresh.
+   */
   const load = useCallback(
     async (opts = { isRefresh: false }) => {
       const { isRefresh } = opts;
@@ -102,22 +123,70 @@ const RoomPage = () => {
     [numericRoomId, navigate, syncRoomForm]
   );
 
-  // ⬇️ UPDATED: initial load + polling every 5s
+  /**
+   * WebSocket: initial REST snapshot + subscribe to live updates.
+   */
   useEffect(() => {
     if (!roomId) return;
 
-    // initial load
+    // 1) initial snapshot via REST
     load();
 
-    // poll for updates (MQTT worker → DB → API)
-    const intervalId = setInterval(() => {
-      load({ isRefresh: true });
-    }, 5000); // 5s, same as mqtt-sim
+    // 2) open WebSocket for live updates
+    const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+    const host = window.location.hostname;
+    const wsUrl = `${protocol}${host}:8002/ws/rooms/${numericRoomId}/`; // adjust port/path if backend differs
 
-    return () => {
-      clearInterval(intervalId);
+    console.log("[ws] connecting to", wsUrl);
+    setWsStatus("connecting");
+
+    const socket = new WebSocket(wsUrl);
+    socketRef.current = socket;
+
+    socket.onopen = () => {
+      console.log("[ws] connected");
+      setWsStatus("online");
     };
-  }, [roomId, load]);
+
+    socket.onmessage = (event) => {
+      console.log("[ws] message", event.data);
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "device_update" && data.device) {
+          setDevices((prev) => applyDeviceUpdate(prev, data.device));
+        }
+
+        if (data.type === "devices_snapshot" && Array.isArray(data.devices)) {
+          setDevices(data.devices);
+        }
+      } catch (e) {
+        console.error("[ws] failed to parse message", e, event.data);
+      }
+    };
+
+    socket.onerror = (event) => {
+      console.error("[ws] error", event);
+      setWsStatus("offline");
+    };
+
+    socket.onclose = () => {
+      console.log("[ws] closed");
+      setWsStatus("offline");
+      socketRef.current = null;
+    };
+
+    // cleanup on room change / unmount
+    return () => {
+      console.log("[ws] closing socket");
+      try {
+        socket.close();
+      } catch (e) {
+        // ignore
+      }
+      socketRef.current = null;
+    };
+  }, [roomId, numericRoomId, load]);
 
   const handleRefreshClick = () => {
     load({ isRefresh: true });
@@ -164,7 +233,7 @@ const RoomPage = () => {
         state: nextState ? "on" : "off",
       });
 
-      // reload to get last_value / timestamps
+      // Optional: keep this to force-sync from DB if needed
       await load({ isRefresh: true });
     } catch (err) {
       console.error("Toggle device error:", err);
@@ -311,6 +380,46 @@ const RoomPage = () => {
 
   const effectiveBackgroundUrl = room?.background_image_url || "";
 
+  const renderWsStatus = () => {
+    if (wsStatus === "idle") return null;
+    const label =
+      wsStatus === "connecting"
+        ? "Connecting…"
+        : wsStatus === "online"
+        ? "Live"
+        : "Offline";
+
+    const color =
+      wsStatus === "online"
+        ? "#22c55e"
+        : wsStatus === "connecting"
+        ? "#f97316"
+        : "#ef4444";
+
+    return (
+      <span
+        style={{
+          marginLeft: 12,
+          fontSize: 11,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          color: "#6b7280",
+        }}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: "999px",
+            backgroundColor: color,
+          }}
+        />
+        {label}
+      </span>
+    );
+  };
+
   return (
     <div className="room-page">
       <header className="dashboard-header">
@@ -340,6 +449,7 @@ const RoomPage = () => {
           >
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
+          {renderWsStatus()}
         </div>
       </header>
 
@@ -631,7 +741,9 @@ const RoomCanvas = ({
     didMoveRef.current = false;
 
     const { x, y } = getPercentFromPointer(e);
-    onPositionPreview(deviceId, x, y);
+    if (onPositionPreview) {
+      onPositionPreview(deviceId, x, y);
+    }
   };
 
   const handlePointerMove = (e) => {
@@ -647,7 +759,9 @@ const RoomCanvas = ({
     }
 
     const { x, y } = getPercentFromPointer(e);
-    onPositionPreview(draggingId, x, y);
+    if (onPositionPreview) {
+      onPositionPreview(draggingId, x, y);
+    }
   };
 
   const finishDrag = (e) => {
@@ -656,8 +770,12 @@ const RoomCanvas = ({
     setDraggingId(null);
 
     const { x, y } = getPercentFromPointer(e);
-    onPositionPreview(finalId, x, y);
-    onPositionCommit(finalId, x, y);
+    if (onPositionPreview) {
+      onPositionPreview(finalId, x, y);
+    }
+    if (onPositionCommit) {
+      onPositionCommit(finalId, x, y);
+    }
 
     // If user didn't really move the pointer → treat it as a click
     if (!didMoveRef.current && onOpenDeviceSettings) {
@@ -812,99 +930,6 @@ const RoomCanvas = ({
         </p>
       )}
     </div>
-  );
-};
-
-/* -----------------------------------
- * Settings tab component
- * --------------------------------- */
-
-const RoomSettingsView = ({
-  roomName,
-  roomSlug,
-  backgroundPreview,
-  onRoomNameChange,
-  onRoomSlugChange,
-  onBackgroundFileChange,
-  onSave,
-  loading,
-}) => {
-  return (
-    <section className="rooms-section">
-      <div className="rooms-list">
-        <div className="rooms-list-header">
-          <h2 className="rooms-list-title">Room settings</h2>
-        </div>
-        <form onSubmit={onSave}>
-          <div className="login-form-group">
-            <label className="login-label">Room name</label>
-            <input
-              className="login-input"
-              value={roomName}
-              onChange={(e) => onRoomNameChange(e.target.value)}
-              placeholder="Living Room"
-              disabled={loading}
-            />
-          </div>
-          <div className="login-form-group">
-            <label className="login-label">Room slug</label>
-            <input
-              className="login-input"
-              value={roomSlug}
-              onChange={(e) => onRoomSlugChange(e.target.value)}
-              placeholder="living-room"
-              disabled={loading}
-            />
-          </div>
-
-          <button className="btn-primary" type="submit" disabled={loading}>
-            Save settings
-          </button>
-        </form>
-      </div>
-
-      <div className="room-canvas-wrapper">
-        <div className="room-canvas-header">
-          <h2 className="room-canvas-title">Background</h2>
-        </div>
-        <div style={{ marginBottom: 8, fontSize: 13, color: "#6b7280" }}>
-          Upload a background image for this room. The image is also used in the
-          layout canvas on the Devices tab.
-        </div>
-
-        {backgroundPreview && (
-          <div
-            style={{
-              marginBottom: 12,
-              borderRadius: 8,
-              overflow: "hidden",
-              border: "1px solid #e5e7eb",
-            }}
-          >
-            <img
-              src={backgroundPreview}
-              alt="Room background preview"
-              style={{
-                width: "100%",
-                display: "block",
-                maxHeight: 220,
-                objectFit: "cover",
-              }}
-            />
-          </div>
-        )}
-
-        <div className="login-form-group">
-          <label className="login-label">Upload new background</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={onBackgroundFileChange}
-            disabled={loading}
-          />
-        </div>
-      </div>
-    </section>
   );
 };
 

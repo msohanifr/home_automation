@@ -8,8 +8,8 @@ services:
     build: ./backend
     container_name: home_automation_backend
     # IMPORTANT: use ASGI server (daphne) instead of runserver
-    command: daphne -b 0.0.0.0 -p 8002 backend.asgi:application
-    # ^ replace "backend.asgi:application" with your actual ASGI module
+    command: daphne -b 0.0.0.0 -p 8002 asgi:application
+    # ^ replace "home_automation_backend.asgi:application" with your actual ASGI module
     #   e.g. "config.asgi:application" if your project is named "config"
     ports:
       - "8002:8002"
@@ -27,6 +27,8 @@ services:
       # Channels / Redis
       - CHANNEL_REDIS_HOST=redis
     depends_on:
+      - mqtt
+      - opcua-sim
       - redis
 
   # -----------------------------
@@ -66,7 +68,9 @@ services:
     container_name: home_automation_mqtt_sim
     working_dir: /app
     depends_on:
+      - backend
       - mqtt
+      - redis
     environment:
       - MQTT_HOST=mqtt
       - MQTT_PORT=1883
