@@ -1,0 +1,40 @@
+home_automation_frontend  | 
+home_automation_frontend  | > home-automation-frontend@0.1.0 start
+home_automation_frontend  | > node ./node_modules/webpack/bin/webpack.js serve --config webpack.config.js --mode development --hot --port 3003
+home_automation_frontend  | 
+home_automation_frontend  | <i> [webpack-dev-server] Project is running at:
+home_automation_frontend  | <i> [webpack-dev-server] Loopback: http://localhost:3003/
+home_automation_frontend  | <i> [webpack-dev-server] On Your Network (IPv4): http://172.20.0.3:3003/
+home_automation_frontend  | <i> [webpack-dev-server] Content not from webpack is served from '/app/public' directory
+home_automation_frontend  | <i> [webpack-dev-server] 404s will fallback to '/index.html'
+home_automation_frontend  | asset bundle.10fbcb41acfccb5fcae5.js 1.87 MiB [emitted] [immutable] (name: main) 1 related asset
+home_automation_frontend  | asset index.html 308 bytes [emitted]
+home_automation_frontend  | runtime modules 28.2 KiB 15 modules
+home_automation_frontend  | orphan modules 681 bytes [orphan] 1 module
+home_automation_frontend  | modules by path ./node_modules/ 1.62 MiB 93 modules
+home_automation_frontend  | modules by path ./src/ 81.1 KiB
+home_automation_frontend  |   modules by path ./src/*.js 17.6 KiB
+home_automation_frontend  |     ./src/index.js 367 bytes [built] [code generated]
+home_automation_frontend  |     ./src/App.js 9.47 KiB [built] [code generated]
+home_automation_frontend  |     ./src/api.js 7.73 KiB [built] [code generated]
+home_automation_frontend  |   modules by path ./src/pages/*.js 43 KiB
+home_automation_frontend  |     ./src/pages/DashboardPage.js 17 KiB [built] [code generated]
+home_automation_frontend  |     ./src/pages/LoginPage.js 10.3 KiB [built] [code generated]
+home_automation_frontend  |     ./src/pages/RoomPage.js 15.7 KiB [built] [code generated]
+home_automation_frontend  |   modules by path ./src/*.css 20.5 KiB
+home_automation_frontend  |     ./src/styles.css 2.24 KiB [built] [code generated]
+home_automation_frontend  |     ./node_modules/css-loader/dist/cjs.js!./src/styles.css 18.3 KiB [built] [code generated]
+home_automation_frontend  | webpack 5.103.0 compiled successfully in 891 ms
+home_automation_frontend  | assets by status 1.87 MiB [cached] 1 asset
+home_automation_frontend  | asset index.html 308 bytes [emitted]
+home_automation_frontend  | cached modules 1.64 MiB (javascript) 28.2 KiB (runtime) [cached] 111 modules
+home_automation_frontend  | javascript modules 60.6 KiB
+home_automation_frontend  |   modules by path ./src/*.js 17.6 KiB
+home_automation_frontend  |     ./src/index.js 367 bytes [built]
+home_automation_frontend  |     ./src/App.js 9.47 KiB [built]
+home_automation_frontend  |     ./src/api.js 7.73 KiB [built]
+home_automation_frontend  |   modules by path ./src/pages/*.js 43 KiB
+home_automation_frontend  |     ./src/pages/DashboardPage.js 17 KiB [built]
+home_automation_frontend  |     ./src/pages/LoginPage.js 10.3 KiB [built]
+home_automation_frontend  |     ./src/pages/RoomPage.js 15.7 KiB [built]
+home_automation_frontend  | webpack 5.103.0 compiled successfully in 156 ms

@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: home_automation_backend
+    command: python manage.py runserver 0.0.0.0:8002
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./backend:/app
+    environment:
+      - DJANGO_DEBUG=1
+      - DJANGO_SECRET_KEY=changeme
+      - DJANGO_ALLOWED_HOSTS=*
+      - DJANGO_CORS_ORIGINS=http://localhost:3003
+
+  frontend:
+    build: ./frontend
+    container_name: home_automation_frontend
+    command: ["npm", "start"]          # run webpack dev server
+    working_dir: /app                  # match what logs showed (/app/public)
+    ports:
+      - "3003:3003"                    # inside & outside both 3003
+    volumes:
+      - ./frontend:/app                # mount your local code
+      - /app/node_modules              # keep node_modules in container
+    environment:
+      - PORT=3003
+      - REACT_APP_API_BASE_URL=http://localhost:8002/api
+    depends_on:
+      - backend
