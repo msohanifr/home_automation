@@ -8,7 +8,7 @@ services:
     build: ./backend
     container_name: home_automation_backend
     # IMPORTANT: use ASGI server (daphne) instead of runserver
-    command: daphne -b 0.0.0.0 -p 8002 asgi:application
+    command: daphne -b 0.0.0.0 -p 8002 home_automation_backend.asgi:application
     # ^ replace "home_automation_backend.asgi:application" with your actual ASGI module
     #   e.g. "config.asgi:application" if your project is named "config"
     ports:

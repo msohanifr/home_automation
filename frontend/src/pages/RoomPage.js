@@ -14,6 +14,10 @@ import {
   updateDevice,
 } from "../api";
 
+/* -----------------------------------
+ * Helpers
+ * --------------------------------- */
+
 /**
  * Merge a single updated device into the existing devices array.
  */
@@ -27,6 +31,10 @@ const applyDeviceUpdate = (devices, updatedDevice) => {
     d.id === updatedDevice.id ? { ...d, ...updatedDevice } : d
   );
 };
+
+/* -----------------------------------
+ * Main Room page
+ * --------------------------------- */
 
 const RoomPage = () => {
   const { roomId } = useParams();
@@ -63,7 +71,6 @@ const RoomPage = () => {
     if (!roomData) return;
     setRoomName(roomData.name || "");
     setRoomSlug(roomData.slug || "");
-    // serializer exposes background_image_url (effective URL)
     setRoomBackgroundUrl(roomData.background_image_url || "");
     setBackgroundFile(null);
     setBackgroundPreview(roomData.background_image_url || "");
@@ -133,9 +140,10 @@ const RoomPage = () => {
     load();
 
     // 2) open WebSocket for live updates
-    const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+    const protocol =
+      window.location.protocol === "https:" ? "wss://" : "ws://";
     const host = window.location.hostname;
-    const wsUrl = `${protocol}${host}:8002/ws/rooms/${numericRoomId}/`; // adjust port/path if backend differs
+    const wsUrl = `${protocol}${host}:8002/ws/rooms/${numericRoomId}/`;
 
     console.log("[ws] connecting to", wsUrl);
     setWsStatus("connecting");
@@ -301,7 +309,11 @@ const RoomPage = () => {
   };
 
   // Commit position to backend when drop finishes
-  const handleDevicePositionCommit = async (deviceId, xPercent, yPercent) => {
+  const handleDevicePositionCommit = async (
+    deviceId,
+    xPercent,
+    yPercent
+  ) => {
     try {
       await updateDevice(deviceId, {
         position_x: xPercent,
@@ -349,7 +361,6 @@ const RoomPage = () => {
         payload = new FormData();
         payload.append("name", roomName);
         payload.append("slug", roomSlug);
-        // ImageField on backend: background_image
         payload.append("background_image", backgroundFile);
       } else {
         // Simple JSON PATCH if no new file uploaded
@@ -561,6 +572,17 @@ const RoomDevicesView = ({
             const isOn = Boolean(device.is_on);
             const labelType = device.device_type || "device";
 
+            const hasValue =
+              device.last_value !== null &&
+              device.last_value !== undefined &&
+              device.last_value !== "";
+
+            const valueText = hasValue
+              ? `${device.last_value}${
+                  device.unit ? ` ${device.unit}` : ""
+                }`
+              : null;
+
             return (
               <div key={device.id} className="room-pill">
                 <div style={{ flex: 1 }}>
@@ -577,12 +599,7 @@ const RoomDevicesView = ({
                     <span>{labelType}</span>
                     {device.location && <span>• {device.location}</span>}
                     {device.unit && <span>• unit: {device.unit}</span>}
-                    {typeof device.last_value === "number" && (
-                      <span>
-                        • last: {device.last_value}
-                        {device.unit ? ` ${device.unit}` : ""}
-                      </span>
-                    )}
+                    {valueText && <span>• last: {valueText}</span>}
                   </div>
                 </div>
 
@@ -847,6 +864,17 @@ const RoomCanvas = ({
         const typeColor = getTypeColor(device.device_type);
         const typeTag = getTypeTag(device.device_type);
 
+        const hasValue =
+          device.last_value !== null &&
+          device.last_value !== undefined &&
+          device.last_value !== "";
+
+        const valueText = hasValue
+          ? `${device.last_value}${
+              device.unit ? ` ${device.unit}` : ""
+            }`
+          : null;
+
         return (
           <div
             key={device.id}
@@ -880,7 +908,7 @@ const RoomCanvas = ({
               title={device.name}
             />
 
-            {/* Label pill */}
+            {/* Label pill: name + optional live value */}
             <div
               style={{
                 padding: "2px 8px",
@@ -891,7 +919,7 @@ const RoomCanvas = ({
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
-                maxWidth: 140,
+                maxWidth: 160,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -911,7 +939,37 @@ const RoomCanvas = ({
                   {typeTag}
                 </span>
               )}
-              <span>{device.name}</span>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  gap: 2,
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 500,
+                    maxWidth: 120,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {device.name}
+                </span>
+
+                {valueText && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      opacity: 0.9,
+                    }}
+                  >
+                    {valueText}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -930,6 +988,99 @@ const RoomCanvas = ({
         </p>
       )}
     </div>
+  );
+};
+
+/* -----------------------------------
+ * Settings tab component
+ * --------------------------------- */
+
+const RoomSettingsView = ({
+  roomName,
+  roomSlug,
+  backgroundPreview,
+  onRoomNameChange,
+  onRoomSlugChange,
+  onBackgroundFileChange,
+  onSave,
+  loading,
+}) => {
+  return (
+    <section className="rooms-section">
+      <div className="rooms-list">
+        <div className="rooms-list-header">
+          <h2 className="rooms-list-title">Room settings</h2>
+        </div>
+        <form onSubmit={onSave}>
+          <div className="login-form-group">
+            <label className="login-label">Room name</label>
+            <input
+              className="login-input"
+              value={roomName}
+              onChange={(e) => onRoomNameChange(e.target.value)}
+              placeholder="Living Room"
+              disabled={loading}
+            />
+          </div>
+          <div className="login-form-group">
+            <label className="login-label">Room slug</label>
+            <input
+              className="login-input"
+              value={roomSlug}
+              onChange={(e) => onRoomSlugChange(e.target.value)}
+              placeholder="living-room"
+              disabled={loading}
+            />
+          </div>
+
+          <button className="btn-primary" type="submit" disabled={loading}>
+            Save settings
+          </button>
+        </form>
+      </div>
+
+      <div className="room-canvas-wrapper">
+        <div className="room-canvas-header">
+          <h2 className="room-canvas-title">Background</h2>
+        </div>
+        <div style={{ marginBottom: 8, fontSize: 13, color: "#6b7280" }}>
+          Upload a background image for this room. The image is also used in the
+          layout canvas on the Devices tab.
+        </div>
+
+        {backgroundPreview && (
+          <div
+            style={{
+              marginBottom: 12,
+              borderRadius: 8,
+              overflow: "hidden",
+              border: "1px solid #e5e7eb",
+            }}
+          >
+            <img
+              src={backgroundPreview}
+              alt="Room background preview"
+              style={{
+                width: "100%",
+                display: "block",
+                maxHeight: 220,
+                objectFit: "cover",
+              }}
+            />
+          </div>
+        )}
+
+        <div className="login-form-group">
+          <label className="login-label">Upload new background</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={onBackgroundFileChange}
+            disabled={loading}
+          />
+        </div>
+      </div>
+    </section>
   );
 };
 

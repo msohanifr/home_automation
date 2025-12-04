@@ -6,7 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "insecure-secret-key")
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
+ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -92,11 +92,12 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ],
 }
-
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "DJANGO_CORS_ORIGINS",
-    "http://localhost:3003"
+    "http://localhost:3003,http://127.0.0.1:3003",
 ).split(",")
+
+CORS_ALLOW_ALL_ORIGINS = True
 
 # --- Basic logging so errors are clearly visible in docker logs ---
 LOG_LEVEL = "DEBUG" if DEBUG else "INFO"
